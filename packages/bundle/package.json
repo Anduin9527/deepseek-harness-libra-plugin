@@ -1,5 +1,5 @@
 {
-  "name": "@libra/dsh-bundle",
+  "name": "@libra-tools/dsh-bundle",
   "version": "0.1.0",
   "description": "DeepSeek Harness profile bundle for Libra bridge integration",
   "type": "module",

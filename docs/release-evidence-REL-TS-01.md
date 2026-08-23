@@ -2,15 +2,16 @@
 
 | Field | Value |
 | --- | --- |
-| Package | `@libra/dsh-bundle@0.1.0` |
+| Package | `@libra-tools/dsh-bundle@0.1.0` |
 | Protocol fixture | `protocol/agent-bridge.v1.schema.json` (libra `0.21.0`) |
 | Fixture SHA256 | `efaf94ec6ad90df2a677b0683fe392c5804d2b318295700cf6a78d59e91cbf6a` |
 | Harness revision | `dsh-v0.1.0-rc.7` / `99f6f02fecdb7dff40c3fbc9470f5907c29f74ca` |
 | Libra binary | `/Volumes/Data/GitMono/libra/target/release/libra` (`0.21.0`) |
-| Staging tarball | `libra-dsh-bundle-0.1.0.tgz` via `node scripts/stage-bundle-for-profile.mjs` + `npm pack --dry-run` |
-| Tarball SHA256 | `6eecd98516158d50391f04242c62816f4f08d6bf` (npm shasum, 30.8 kB) |
-| Publisher | remote-pending (maintainer npm registry registration) |
-| DEP-TS-01 handoff | local evidence recorded; remote registry publish remote-pending |
+| Staging tarball | `libra-tools-dsh-bundle-0.1.0.tgz` via staging script + `npm pack --dry-run` |
+| Tarball SHA256 | `629e991196980a48d0169a0cf062ce68c8dcc8c2` (npm shasum, 30.8 kB) |
+| Publisher | `genedna` |
+| npm registry | https://www.npmjs.com/package/@libra-tools/dsh-bundle |
+| DEP-TS-01 handoff | published `@libra-tools/dsh-bundle@0.1.0` to npm (2026-08-24) |
 
 ## Verification matrix (2026-08-24)
 

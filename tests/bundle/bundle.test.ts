@@ -27,7 +27,7 @@ describe("bundle runtime", () => {
       repositoryRoot: repoRoot,
       outboxRoot: mkdtempSync(join(tmpdir(), "dsh-bundle-outbox-")),
     });
-    expect(bundlePluginName).toBe("@libra/dsh-bundle");
+    expect(bundlePluginName).toBe("@libra-tools/dsh-bundle");
     const tools = runtime.tools.listTools();
     expect(tools.map((tool) => tool.name)).toContain("libra_status");
   });

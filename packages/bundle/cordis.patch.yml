@@ -2,4 +2,4 @@
 
 - insert:
     - id: libra
-      name: '@libra/dsh-bundle'
+      name: '@libra-tools/dsh-bundle'

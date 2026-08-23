@@ -1,6 +1,6 @@
 # DeepSeek Harness Libra Plugin
 
-TypeScript monorepo for `@libra/dsh-bundle`, a DeepSeek Harness profile plugin that talks to
+TypeScript monorepo for `@libra-tools/dsh-bundle`, a DeepSeek Harness profile plugin that talks to
 Libra through `libra agent bridge --stdio` (JSON-RPC NDJSON).
 
 ## Packages

@@ -60,4 +60,4 @@ export async function createLibraBundleRuntime(config: LibraBundleConfig): Promi
   };
 }
 
-export const bundlePluginName = "@libra/dsh-bundle";
+export const bundlePluginName = "@libra-tools/dsh-bundle";

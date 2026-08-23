@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/protocol" },
+    { "path": "./packages/bridge-client" },
+    { "path": "./packages/session" },
+    { "path": "./packages/tools" },
+    { "path": "./packages/workspace" },
+    { "path": "./packages/context" },
+    { "path": "./packages/ui" },
+    { "path": "./packages/bundle" }
+  ]
+}

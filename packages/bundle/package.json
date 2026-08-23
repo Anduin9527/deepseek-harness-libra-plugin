@@ -1,0 +1,42 @@
+{
+  "name": "@libra/dsh-bundle",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness profile bundle for Libra bridge integration",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:dist": "node ../../scripts/build-bundle-dist.mjs && cp lib/index.d.ts dist/index.d.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@libra/dsh-bridge-client": "workspace:*",
+    "@libra/dsh-context": "workspace:*",
+    "@libra/dsh-protocol": "workspace:*",
+    "@libra/dsh-session": "workspace:*",
+    "@libra/dsh-tools": "workspace:*",
+    "@libra/dsh-ui": "workspace:*",
+    "@libra/dsh-workspace": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=0.1.0"
+  }
+}

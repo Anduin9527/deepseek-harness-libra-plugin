@@ -1,0 +1,27 @@
+{
+  "name": "@libra/dsh-root",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "build": "tsc -b && node scripts/build-bundle-dist.mjs && cp packages/bundle/lib/index.d.ts packages/bundle/dist/index.d.ts",
+    "test:contract": "node scripts/test-contract.mjs",
+    "test:integration": "node scripts/test-integration.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vitest": "^3.2.4"
+  }
+}

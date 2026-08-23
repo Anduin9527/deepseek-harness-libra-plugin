@@ -1,0 +1,8 @@
+node_modules/
+.libra/
+*.tsbuildinfo
+packages/*/lib/
+packages/*/dist/
+.profile-bundle-staging/
+packages/bundle/package.publish.json
+*.tgz

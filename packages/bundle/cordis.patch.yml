@@ -1,0 +1,5 @@
+# Libra DeepSeek Harness bundle — registers bridge-backed Libra integration layers.
+
+- insert:
+    - id: libra
+      name: '@libra/dsh-bundle'

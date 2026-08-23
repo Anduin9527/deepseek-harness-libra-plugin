@@ -1,0 +1,63 @@
+{
+  "protocol_version": { "major": 1, "minor": 0 },
+  "source": "deepseek-harness",
+  "jsonrpc_version": "2.0",
+  "fixture_provenance": {
+    "libra_version": "0.21.0",
+    "fixture_origin": "/Volumes/Data/GitMono/libra/src/internal/ai/agent_bridge/protocol.rs",
+    "golden_frames_path": "tests/fixtures/agent_bridge/initialize.ndjson"
+  },
+  "methods": [
+    "initialize",
+    "session.open",
+    "event.append",
+    "session.flush",
+    "session.close",
+    "evidence.append",
+    "provenance.append",
+    "context.get",
+    "status.get",
+    "diff.get",
+    "history.search",
+    "checkpoint.create",
+    "checkpoint.list",
+    "checkpoint.show",
+    "checkpoint.restore",
+    "commit.create",
+    "review.run",
+    "workspace.claim",
+    "workspace.renew",
+    "workspace.release"
+  ],
+  "limits": {
+    "max_frame_bytes": 262144,
+    "max_inflight": 64,
+    "max_batch_events": 64,
+    "max_batch_bytes": 262144,
+    "max_event_bytes": 262144,
+    "max_result_bytes": 262144,
+    "max_page": 100,
+    "request_deadline_secs": 30
+  },
+  "error_codes": {
+    "parse_error": { "code": -32700, "stable_code": "LBR-AGENT-024", "retryable": false },
+    "invalid_request": { "code": -32600, "stable_code": "LBR-AGENT-025", "retryable": false },
+    "method_not_found": { "code": -32601, "stable_code": "LBR-AGENT-026", "retryable": false },
+    "invalid_params": { "code": -32602, "stable_code": "LBR-AGENT-027", "retryable": false },
+    "internal_error": { "code": -32603, "stable_code": "LBR-AGENT-037", "retryable": false },
+    "protocol_major_mismatch": { "code": 1000, "stable_code": "LBR-AGENT-031", "retryable": false },
+    "frame_too_large": { "code": 1001, "stable_code": "LBR-AGENT-028", "retryable": false },
+    "inflight_limit": { "code": 1002, "stable_code": "LBR-AGENT-029", "retryable": false },
+    "unknown_method": { "code": 1003, "stable_code": "LBR-AGENT-026", "retryable": false },
+    "invalid_params_bridge": { "code": 1004, "stable_code": "LBR-AGENT-027", "retryable": false },
+    "not_implemented": { "code": 1005, "stable_code": "LBR-AGENT-030", "retryable": false },
+    "scope_mismatch": { "code": 1006, "stable_code": "LBR-AGENT-032", "retryable": false },
+    "digest_conflict": { "code": 1007, "stable_code": "LBR-AGENT-033", "retryable": false },
+    "redaction_failed": { "code": 1008, "stable_code": "LBR-AGENT-034", "retryable": false },
+    "denied": { "code": 1009, "stable_code": "LBR-AGENT-035", "retryable": false },
+    "timeout": { "code": 1010, "stable_code": "LBR-AGENT-036", "retryable": true },
+    "stale_fence": { "code": 1011, "stable_code": "LBR-AGENT-038", "retryable": false },
+    "workspace_lease_held": { "code": 1009, "stable_code": "LBR-AGENT-022", "retryable": true },
+    "workspace_lease_lost": { "code": 1006, "stable_code": "LBR-AGENT-023", "retryable": false }
+  }
+}

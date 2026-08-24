@@ -14,7 +14,16 @@ rl.on("line", (line) => {
         jsonrpc: "2.0",
         result: {
           protocol: { major: 1, minor: 0 },
-          limits: { max_frame_bytes: 262144, max_inflight: 64 },
+          limits: {
+            max_frame_bytes: 262144,
+            max_inflight: 64,
+            max_batch_events: 64,
+            max_batch_bytes: 262144,
+            max_event_bytes: 262144,
+            max_result_bytes: 262144,
+            max_page: 100,
+            request_deadline_secs: 30,
+          },
           methods: ["initialize", "status.get"],
           source: "deepseek-harness",
         },

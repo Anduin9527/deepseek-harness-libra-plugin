@@ -98,8 +98,8 @@ rl.on("line", (line) => {
   if (frame.method === "workspace.claim") {
     const params = frame.params ?? {};
     const sessionId = params.session_id;
-    const workspaceId = params.workspace_id;
-    const actor = params.actor;
+    const workspaceId = params.workspace_id ?? params.worktree_id ?? params.path ?? "workspace";
+    const actor = params.actor ?? expectedActor(sessionId);
     const mode = params.mode ?? "linked";
     const parentSessionId = params.parent_session_id;
     if (!sessionId || !workspaceId) {
@@ -163,7 +163,14 @@ rl.on("line", (line) => {
     leasesByWorkspace.set(workspaceId, lease);
     writeResponse({
       jsonrpc: "2.0",
-      result: { lease_fence: leaseFence, workspace_id: workspaceId },
+      result: {
+        session_id: sessionId,
+        workspace_id: workspaceId,
+        owner: expectedActor(sessionId),
+        fence: leaseFence,
+        lease_fence: leaseFence,
+        expires_at: Date.now() + (params.lease_ttl_ms ?? 30_000),
+      },
       id,
     });
     return;
@@ -171,7 +178,8 @@ rl.on("line", (line) => {
   if (frame.method === "workspace.renew") {
     const params = frame.params ?? {};
     const lease = leasesBySession.get(params.session_id);
-    if (!lease || lease.lease_fence !== params.lease_fence) {
+    const fence = params.fence ?? params.lease_fence;
+    if (!lease || lease.lease_fence !== fence) {
       writeResponse({
         jsonrpc: "2.0",
         error: {
@@ -183,7 +191,17 @@ rl.on("line", (line) => {
       });
       return;
     }
-    writeResponse({ jsonrpc: "2.0", result: { ok: true }, id });
+    writeResponse({
+      jsonrpc: "2.0",
+      result: {
+        session_id: params.session_id,
+        workspace_id: lease.workspace_id,
+        owner: expectedActor(params.session_id),
+        fence: lease.lease_fence,
+        expires_at: Date.now() + (params.lease_ttl_ms ?? 30_000),
+      },
+      id,
+    });
     return;
   }
   if (frame.method === "workspace.release") {
@@ -193,7 +211,8 @@ rl.on("line", (line) => {
       writeResponse({ jsonrpc: "2.0", result: { ok: true }, id });
       return;
     }
-    if (lease.lease_fence !== params.lease_fence) {
+    const fence = params.fence ?? params.lease_fence;
+    if (lease.lease_fence !== fence) {
       writeResponse({
         jsonrpc: "2.0",
         error: {
@@ -218,11 +237,13 @@ rl.on("line", (line) => {
     return;
   }
   if (frame.method === "event.append") {
+    const events = frame.params?.events ?? [];
     writeResponse({
       jsonrpc: "2.0",
       result: {
-        accepted: frame.params?.events?.length ?? 0,
-        last_acked_seq: frame.params?.events?.at(-1)?.seq ?? 0,
+        session_id: frame.params?.session_id,
+        per_event: events.map((event) => ({ seq: event.seq, status: "accepted" })),
+        last_acked_seq: events.at(-1)?.seq ?? 0,
       },
       id,
     });

@@ -7,8 +7,9 @@
 | `libra_diff` | `diff.get` | read |
 | `libra_history_search` | `history.search` | read |
 | `libra_checkpoint` | `checkpoint.list` | read |
+| `libra_checkpoint_create` | `checkpoint.create` | write |
 | `libra_commit` | `commit.create` | write |
-| `libra_review` | `review.run` | read |
+| `libra_review` | `review.run` | write |
 | `libra_restore_checkpoint` | `checkpoint.restore` | restore |
 
 Tool results are a single object: `{ schema_version, operation_id, status, data?, error?, warnings? }`.

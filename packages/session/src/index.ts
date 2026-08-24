@@ -1,4 +1,8 @@
-export { OutboxStore, DEFAULT_OUTBOX_MAX_BYTES } from "./outbox.js";
+export {
+  OutboxCorruptionError,
+  OutboxStore,
+  DEFAULT_OUTBOX_MAX_BYTES,
+} from "./outbox.js";
 export { hashPayload, redactPayload } from "./redaction.js";
 export { SessionProjectionService } from "./projection.js";
 export type {

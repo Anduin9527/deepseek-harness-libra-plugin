@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync } from "node:fs";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,7 +6,12 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { BridgeClient } from "@libra/dsh-bridge-client";
-import { OutboxStore, SessionProjectionService, redactPayload } from "@libra/dsh-session";
+import {
+  OutboxCorruptionError,
+  OutboxStore,
+  SessionProjectionService,
+  redactPayload,
+} from "@libra/dsh-session";
 
 const repoRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const wrapper = fileURLToPath(new URL("../fixtures/fake-bridge-wrapper.sh", import.meta.url));
@@ -121,6 +126,29 @@ describe("session-projection:duplicate-and-replay", () => {
     outbox.enqueue(event);
     const snapshot = outbox.load("s1");
     expect(snapshot.entries.filter((e) => e.event_seq === 1).length).toBe(1);
+  });
+
+  it("rejects corrupt snapshots and traversal session ids", () => {
+    const root = mkdtempSync(join(tmpdir(), "dsh-outbox-corrupt-"));
+    writeFileSync(join(root, "broken.outbox.json"), "{not-json", "utf8");
+    const outbox = new OutboxStore(root);
+    expect(() => outbox.load("broken")).toThrow(OutboxCorruptionError);
+    expect(() => outbox.load("../escape")).toThrow(OutboxCorruptionError);
+  });
+
+  it("applies partial acknowledgements by per-event status", () => {
+    const outbox = new OutboxStore(mkdtempSync(join(tmpdir(), "dsh-outbox-partial-")));
+    for (const event_seq of [1, 2]) {
+      outbox.enqueue({ session_id: "partial", event_seq, event_type: "message", payload: `event-${event_seq}` });
+    }
+    outbox.applyAppendResult("partial", 2, [
+      { seq: 1, status: "accepted" },
+      { seq: 2, status: "conflict" },
+    ]);
+    const snapshot = outbox.load("partial");
+    expect(snapshot.entries).toHaveLength(1);
+    expect(snapshot.entries[0]?.state).toBe("rejected");
+    expect(snapshot.last_acked_seq).toBe(2);
   });
 });
 

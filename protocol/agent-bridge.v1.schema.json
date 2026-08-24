@@ -3,9 +3,10 @@
   "source": "deepseek-harness",
   "jsonrpc_version": "2.0",
   "fixture_provenance": {
-    "libra_version": "0.21.0",
-    "fixture_origin": "/Volumes/Data/GitMono/libra/src/internal/ai/agent_bridge/protocol.rs",
-    "golden_frames_path": "tests/fixtures/agent_bridge/initialize.ndjson"
+    "libra_version": "0.21.22",
+    "fixture_origin": "src/internal/ai/agent_bridge/protocol.rs",
+    "golden_frames_path": "tests/fixtures/agent_bridge/initialize.ndjson",
+    "authority_revision": "b073f078fb67078729fb0a4975294e3ab2dbdefa"
   },
   "methods": [
     "initialize",

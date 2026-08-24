@@ -6,4 +6,7 @@
 | `isolated` | Isolated worktree scope |
 | `readonly` | Read-only workspace lease |
 
-Actor identity is always `deepseek-harness:<session_id>` or `deepseek-harness:<agent_id>` from the authenticated bridge session. Model parameters cannot override actor, repository root, or lease fence.
+The bridge derives owner identity from the authenticated session. The TypeScript client sends
+`path`, returned `workspace_id`, `owner`, `fence`, and optional `lease_ttl_ms` according to the
+Rust contract; it does not send a model-controlled actor credential. Model parameters cannot
+override owner, repository root, or lease fence.

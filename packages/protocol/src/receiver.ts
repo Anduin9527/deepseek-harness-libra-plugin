@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,7 +8,10 @@ import { validateContractShape } from "./validate.js";
 const packageRoot = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(packageRoot, "..", "..", "..");
 
-const DEFAULT_SCHEMA_PATH = join(repoRoot, "protocol", "agent-bridge.v1.schema.json");
+const bundledSchemaPath = join(packageRoot, "protocol", "agent-bridge.v1.schema.json");
+const DEFAULT_SCHEMA_PATH = existsSync(bundledSchemaPath)
+  ? bundledSchemaPath
+  : join(repoRoot, "protocol", "agent-bridge.v1.schema.json");
 
 export class ProtocolReceiverError extends Error {
   readonly code: "missing_fixture" | "empty_fixture" | "invalid_fixture" | "major_mismatch";

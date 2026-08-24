@@ -6,10 +6,18 @@ export interface ToolDefinition {
   risk: ToolRisk;
   schema_version: string;
   retryable: boolean;
+  parameters: readonly string[];
+  required_parameters: readonly string[];
 }
 
 export interface ToolInput {
   operation_id?: string;
+  [key: string]: unknown;
+}
+
+export interface ApprovalDecision {
+  decision: "approved" | "denied";
+  approver?: string;
 }
 
 export interface ToolResult {
@@ -31,4 +39,5 @@ export interface ApprovalPolicy {
   allowWrite: boolean;
   allowRestore: boolean;
   allowPushPublish: boolean;
+  defaultApproval?: ApprovalDecision;
 }

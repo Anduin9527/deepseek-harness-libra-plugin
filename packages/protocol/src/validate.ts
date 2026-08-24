@@ -55,7 +55,7 @@ function readLimits(value: unknown, schemaPath: string) {
     ["request_deadline_secs", request_deadline_secs],
   ];
   for (const [key, candidate] of entries) {
-    if (typeof candidate !== "number" || !Number.isInteger(candidate)) {
+    if (typeof candidate !== "number" || !Number.isSafeInteger(candidate) || candidate <= 0) {
       throw new ProtocolReceiverError(
         "invalid_fixture",
         `protocol fixture at ${schemaPath} has invalid limits.${key}`,

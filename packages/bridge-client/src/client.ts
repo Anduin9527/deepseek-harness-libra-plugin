@@ -9,7 +9,11 @@ import {
 } from "@libra/dsh-protocol";
 
 import { BridgeConfigError, normalizeBridgeConfig } from "./config.js";
-import { classifyTerminalState, parseResponseLine, serializeRequest } from "./ndjson.js";
+import {
+  classifyTerminalState,
+  parseResponseLine,
+  serializeRequest,
+} from "./ndjson.js";
 import type {
   BridgeClientConfig,
   BridgeRequestRecord,
@@ -86,7 +90,7 @@ export class BridgeClient {
 
     const child = spawn(this.config.executable, [...this.config.args ?? []], {
       cwd: this.config.cwd,
-      env: { ...process.env, ...this.config.env },
+      env: this.config.env ?? {},
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -108,6 +112,20 @@ export class BridgeClient {
       lineReader,
       pendingById,
     };
+
+    child.on("error", (error) => {
+      if (state.disposed) {
+        return;
+      }
+      state.disposed = true;
+      this.state = null;
+      const bridgeError = new BridgeClientError("child_crashed", `bridge child error: ${error.message}`);
+      for (const pending of pendingById.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(bridgeError);
+      }
+      pendingById.clear();
+    });
 
     lineReader.on("line", (line) => {
       this.handleStdoutLine(state, line);
@@ -170,7 +188,7 @@ export class BridgeClient {
       );
     }
 
-    const result = response.result as InitializeResult;
+    const result = this.parseInitializeResult(response.result);
     state.requests.set(requestKey(initId), {
       id: initId,
       method: "initialize",
@@ -242,7 +260,11 @@ export class BridgeClient {
 
   private handleStdoutLine(state: InternalState, line: string): void {
     try {
-      const response = parseResponseLine(line, state.contract.limits.max_frame_bytes);
+      const response = parseResponseLine(
+        line,
+        state.contract.limits.max_frame_bytes,
+        state.contract.limits.max_result_bytes,
+      );
       const key = requestKey(response.id);
       const pending = state.pendingById.get(key);
       if (!pending) {
@@ -287,12 +309,26 @@ export class BridgeClient {
     const key = requestKey(id);
     state.requests.set(key, { id, method, state: "pending" });
 
-    const frame = serializeRequest({
-      jsonrpc: "2.0",
-      method,
-      params,
-      id,
-    });
+    let frame: string;
+    try {
+      frame = serializeRequest(
+        {
+          jsonrpc: "2.0",
+          method,
+          params,
+          id,
+        },
+        state.contract.limits.max_frame_bytes,
+      );
+    } catch (error) {
+      state.requests.delete(key);
+      return Promise.reject(
+        new BridgeClientError(
+          "protocol_violation",
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+    }
 
     return new Promise<JsonRpcResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -308,13 +344,68 @@ export class BridgeClient {
 
       state.pendingById.set(key, { resolve, reject, timer });
 
-      state.child.stdin?.write(frame, (error) => {
+      if (!state.child.stdin) {
+        clearTimeout(timer);
+        state.pendingById.delete(key);
+        reject(new BridgeClientError("protocol_violation", "bridge child stdin is unavailable"));
+        return;
+      }
+      state.child.stdin.write(frame, (error) => {
         if (error) {
           clearTimeout(timer);
           state.pendingById.delete(key);
-          reject(new BridgeClientError("protocol_violation", error.message));
+          state.requests.set(key, {
+            id,
+            method,
+            state: "error_fatal",
+            error: { code: 1001, message: error.message },
+          });
+          reject(new BridgeClientError("child_crashed", error.message));
         }
       });
     });
+  }
+
+  private parseInitializeResult(value: unknown): InitializeResult {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new BridgeClientError("handshake_failed", "initialize result must be an object");
+    }
+    const result = value as Record<string, unknown>;
+    const protocol = result.protocol;
+    const limits = result.limits;
+    const methods = result.methods;
+    if (
+      !protocol ||
+      typeof protocol !== "object" ||
+      typeof (protocol as Record<string, unknown>).major !== "number" ||
+      typeof (protocol as Record<string, unknown>).minor !== "number" ||
+      !limits ||
+      typeof limits !== "object" ||
+      !Array.isArray(methods) ||
+      !methods.every((method) => typeof method === "string") ||
+      typeof result.source !== "string"
+    ) {
+      throw new BridgeClientError("handshake_failed", "initialize result does not match the bridge contract");
+    }
+    const requiredLimits = [
+      "max_frame_bytes",
+      "max_inflight",
+      "max_batch_events",
+      "max_batch_bytes",
+      "max_event_bytes",
+      "max_result_bytes",
+      "max_page",
+      "request_deadline_secs",
+    ] as const;
+    for (const key of requiredLimits) {
+      const value = (limits as Record<string, unknown>)[key];
+      if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+        throw new BridgeClientError("handshake_failed", `initialize limits.${key} is invalid`);
+      }
+    }
+    if (new Set(methods).size !== methods.length || !methods.includes("initialize")) {
+      throw new BridgeClientError("handshake_failed", "initialize methods list is invalid");
+    }
+    return value as InitializeResult;
   }
 }

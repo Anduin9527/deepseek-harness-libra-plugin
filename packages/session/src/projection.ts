@@ -11,6 +11,12 @@ import type {
 const DEFAULT_MAX_CONCURRENT_SESSIONS = 64;
 const DEFAULT_MAX_FLUSH_RETRIES = 3;
 
+interface AppendResult {
+  session_id?: string;
+  last_acked_seq: number;
+  per_event: Array<{ seq: number; status: "accepted" | "duplicate" | "conflict" | "rejected" }>;
+}
+
 export class SessionProjectionService {
   private readonly outbox: OutboxStore;
   private readonly bridge: BridgeClient;
@@ -18,6 +24,7 @@ export class SessionProjectionService {
   private readonly maxFlushRetries: number;
   private readonly pausedSessions = new Set<string>();
   private readonly activeSessions = new Set<string>();
+  private readonly openedSessions = new Set<string>();
   private readonly warnings: string[] = [];
 
   constructor(
@@ -52,6 +59,21 @@ export class SessionProjectionService {
     return this.metrics(event.session_id);
   }
 
+  async open(sessionId: string, parentSessionId?: string): Promise<void> {
+    if (this.openedSessions.has(sessionId)) {
+      return;
+    }
+    const opened = await this.bridge.requestMethod("session.open", {
+      session_id: sessionId,
+      ...(parentSessionId ? { parent_session_id: parentSessionId } : {}),
+    });
+    if (opened.state !== "success") {
+      throw new Error(opened.error?.message ?? "session.open failed");
+    }
+    this.openedSessions.add(sessionId);
+    this.activeSessions.add(sessionId);
+  }
+
   async flush(sessionId: string): Promise<number> {
     const contract = this.bridge.contract;
     let acked = 0;
@@ -62,10 +84,7 @@ export class SessionProjectionService {
         break;
       }
       const parentSessionId = this.outbox.parentSessionId(sessionId);
-      await this.bridge.requestMethod("session.open", {
-        session_id: sessionId,
-        ...(parentSessionId ? { parent_session_id: parentSessionId } : {}),
-      });
+      await this.open(sessionId, parentSessionId);
       let append;
       try {
         append = await this.bridge.requestMethod("event.append", {
@@ -93,15 +112,19 @@ export class SessionProjectionService {
         this.warnings.push(`event.append failed retry ${retries} for session ${sessionId}`);
         continue;
       }
+      const appendResult = this.parseAppendResult(append.result);
       const flush = await this.bridge.requestMethod("session.flush", { session_id: sessionId });
       if (flush.state !== "success") {
         throw new Error(flush.error?.message ?? "session.flush failed");
       }
-      const lastSeq = batch[batch.length - 1]?.event_seq ?? 0;
-      this.outbox.markAcked(sessionId, lastSeq);
-      acked += batch.length;
+      const applied = this.outbox.applyAppendResult(
+        sessionId,
+        appendResult.last_acked_seq,
+        appendResult.per_event,
+      );
+      acked += applied;
       retries = 0;
-      if (batch.length < contract.limits.max_batch_events) {
+      if (applied === 0 || batch.length < contract.limits.max_batch_events) {
         break;
       }
     }
@@ -135,6 +158,7 @@ export class SessionProjectionService {
     }
     await this.bridge.requestMethod("session.close", { session_id: sessionId });
     this.activeSessions.delete(sessionId);
+    this.openedSessions.delete(sessionId);
     this.pausedSessions.delete(sessionId);
     return { drained, warnings };
   }
@@ -150,6 +174,42 @@ export class SessionProjectionService {
       active_sessions: this.activeSessions.size,
       warnings: [...this.warnings],
       paused: this.pausedSessions.has(sessionId) || base.paused,
+    };
+  }
+
+  private parseAppendResult(value: unknown): AppendResult {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("event.append result must be an object");
+    }
+    const result = value as Record<string, unknown>;
+    if (
+      typeof result.last_acked_seq !== "number" ||
+      !Number.isSafeInteger(result.last_acked_seq) ||
+      !Array.isArray(result.per_event)
+    ) {
+      throw new Error("event.append result is missing last_acked_seq/per_event");
+    }
+    const perEvent = result.per_event.map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new Error("event.append per_event entry is malformed");
+      }
+      const record = entry as Record<string, unknown>;
+      if (
+        typeof record.seq !== "number" ||
+        !Number.isSafeInteger(record.seq) ||
+        !["accepted", "duplicate", "conflict", "rejected"].includes(String(record.status))
+      ) {
+        throw new Error("event.append per_event status is malformed");
+      }
+      return {
+        seq: record.seq,
+        status: record.status as AppendResult["per_event"][number]["status"],
+      };
+    });
+    return {
+      ...(typeof result.session_id === "string" ? { session_id: result.session_id } : {}),
+      last_acked_seq: result.last_acked_seq,
+      per_event: perEvent,
     };
   }
 }

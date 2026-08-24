@@ -4,8 +4,6 @@ export const BRIDGE_FIXED_ARGS = ["agent", "bridge", "--stdio"] as const;
 
 const DEFAULT_ENV_ALLOWLIST = [
   "PATH",
-  "HOME",
-  "USER",
   "TMPDIR",
   "LANG",
   "LC_ALL",

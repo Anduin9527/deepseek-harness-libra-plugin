@@ -1,16 +1,16 @@
 import { mkdtempSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { BridgeClient } from "@libra/dsh-bridge-client";
 import { OutboxStore, SessionProjectionService } from "@libra/dsh-session";
 
-const repoRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
-const libraBinary =
-  process.env.LIBRA_BINARY ?? "/Volumes/Data/GitMono/libra/target/release/libra";
+const libraBinary = process.env.LIBRA_BINARY;
+const libraRepo = process.env.LIBRA_REPO;
+const realLibraConfigured = Boolean(libraBinary || libraRepo);
 
 describe("libra contract flow", () => {
   let bridge: BridgeClient | undefined;
@@ -20,10 +20,18 @@ describe("libra contract flow", () => {
     bridge = undefined;
   });
 
-  it("runs initialize → open → append → flush → close", async () => {
+  it.skipIf(!realLibraConfigured)("runs initialize → open → append → flush → close", async () => {
+    if (
+      !libraBinary ||
+      !libraRepo ||
+      !existsSync(libraBinary) ||
+      !existsSync(join(libraRepo, ".libra"))
+    ) {
+      throw new Error("configured LIBRA_BINARY/LIBRA_REPO is not a built, initialized Libra checkout");
+    }
     bridge = new BridgeClient({
       executable: libraBinary,
-      cwd: repoRoot,
+      cwd: libraRepo,
       env: {
         PATH: process.env.PATH ?? "",
         LIBRA_SKIP_WEB_BUILD: "1",

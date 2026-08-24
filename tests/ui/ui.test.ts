@@ -85,11 +85,15 @@ describe("ui:approval-and-idempotency", () => {
     const workspace = new WorkspaceBindingService(bridge);
     const ui = new UiCardService(tools, { workspace });
     const result = await ui.runAction("ws-session", "workspace_create", "ws-op", {
-      workspace_id: "ws-ui",
+      path: repoRoot,
       mode: "linked",
     });
     expect(result.status).toBe("ok");
-    expect(result.data).toMatchObject({ workspace_id: "ws-ui" });
+    expect(result.data).toMatchObject({
+      workspace_id: repoRoot,
+      owner: "deepseek-harness:ws-session",
+      fence: 1,
+    });
     await workspace.release("ws-session");
   });
 

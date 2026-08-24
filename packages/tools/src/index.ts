@@ -1,5 +1,6 @@
 export { ToolsFacade } from "./facade.js";
 export type {
+  ApprovalDecision,
   ApprovalPolicy,
   ToolDefinition,
   ToolInput,

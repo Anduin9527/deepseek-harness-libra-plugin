@@ -5,7 +5,7 @@
 - One JSON-RPC 2.0 object per NDJSON line on stdout.
 - Diagnostics only on stderr; stdout pollution is a protocol violation.
 - Default request deadline: 30 seconds.
-- Frame cap: 256 KiB per line.
+- Frame cap: 256 KiB per line; result and event limits are also checked as UTF-8 bytes.
 
 ## Handshake (`initialize`)
 
@@ -40,7 +40,9 @@ configuration normalization.
 ## Event ingress and outbox (TS-03)
 
 Harness session events are batched by `(session_id, event_seq)` and sent through
-`event.append`. The plugin keeps a bounded outbox under the Harness profile storage
-seam; ack from `session.flush` clears durable entries up to `last_acked_seq`. Duplicate
-`(session_id, event_seq)` with the same digest is a successful replay; digest conflicts
-are fail-closed.
+`event.append`. The plugin keeps a bounded, owner-only outbox under the Harness profile
+storage seam; `last_acked_seq` and `per_event` statuses drive durable state. Accepted or
+duplicate events are pruned, while conflict/rejected events remain bounded diagnostics.
+Duplicate `(session_id, event_seq)` with the same digest is a successful replay; digest
+conflicts are fail-closed. All frame, event, result, batch, outbox, and context limits use
+UTF-8 encoded byte counts.

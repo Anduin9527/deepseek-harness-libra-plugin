@@ -11,6 +11,8 @@ import {
   classifyTerminalState,
   normalizeBridgeConfig,
   parseResponseLine,
+  serializeRequest,
+  utf8ByteLength,
 } from "@libra/dsh-bridge-client";
 import { loadProtocolReceiver } from "@libra/dsh-protocol";
 
@@ -55,6 +57,44 @@ describe("bridge-client handshake", () => {
         args: ["agent", "bridge", "--stdio", "--evil"],
       }),
     ).toThrow(BridgeConfigError);
+  });
+
+  it("passes only the normalized bridge environment allowlist", () => {
+    const previous = process.env.DSH_BRIDGE_TEST_SECRET;
+    process.env.DSH_BRIDGE_TEST_SECRET = "must-not-cross-boundary";
+    try {
+      const normalized = normalizeBridgeConfig({
+        executable: "/usr/bin/libra",
+        cwd: repoRoot,
+        env: { PATH: "/safe/bin" },
+      });
+      expect(normalized.env).toEqual(expect.objectContaining({ PATH: "/safe/bin" }));
+      expect(normalized.env).not.toHaveProperty("DSH_BRIDGE_TEST_SECRET");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.DSH_BRIDGE_TEST_SECRET;
+      } else {
+        process.env.DSH_BRIDGE_TEST_SECRET = previous;
+      }
+    }
+  });
+
+  it("enforces NDJSON and result limits using UTF-8 bytes", () => {
+    const request = {
+      jsonrpc: "2.0" as const,
+      method: "status.get",
+      params: { text: "😀😀" },
+      id: 1,
+    };
+    const serialized = serializeRequest(request);
+    const frameBytes = utf8ByteLength(serialized.trim());
+    expect(() => serializeRequest(request, frameBytes - 1)).toThrow(/bytes/);
+    expect(() => serializeRequest(request, frameBytes)).not.toThrow();
+
+    const response = JSON.stringify({ jsonrpc: "2.0", result: { text: "😀" }, id: 1 });
+    const resultBytes = utf8ByteLength(JSON.stringify({ text: "😀" }));
+    expect(() => parseResponseLine(response, 1024, resultBytes - 1)).toThrow(/result/);
+    expect(parseResponseLine(response, 1024, resultBytes).id).toBe(1);
   });
 
   it("classifies retryable and fatal terminal states", async () => {

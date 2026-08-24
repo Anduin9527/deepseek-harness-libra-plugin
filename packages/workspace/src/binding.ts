@@ -1,20 +1,32 @@
 import type { BridgeClient } from "@libra/dsh-bridge-client";
+import { realpathSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 
 export type WorkspaceMode = "linked" | "isolated" | "readonly";
 
 export interface WorkspaceClaimRequest {
   session_id: string;
-  workspace_id: string;
-  mode: WorkspaceMode;
+  path?: string;
+  worktree_id?: string;
+  lease_ttl_ms?: number;
   parent_session_id?: string;
+  /** @deprecated only used to validate legacy local parent scope; never sent to Libra. */
+  workspace_id?: string;
+  /** @deprecated local UI hint; the bridge derives workspace kind from path/worktree_id. */
+  mode?: WorkspaceMode;
 }
 
 export interface WorkspaceHandle {
   workspace_id: string;
   session_id: string;
+  owner: string;
+  fence: number;
+  expires_at: number | null | undefined;
+  lease_ttl_ms?: number;
+  /** Compatibility aliases for existing UI consumers. */
   lease_fence: number;
   actor: string;
-  mode: WorkspaceMode;
+  mode?: WorkspaceMode;
   parent_session_id?: string;
 }
 
@@ -32,14 +44,12 @@ export class WorkspaceBindingError extends Error {
 
 export class WorkspaceBindingService {
   private readonly bridge: BridgeClient;
+  private readonly repositoryRoot: string;
   private readonly handles: Map<string, WorkspaceHandle> = new Map();
 
-  constructor(bridge: BridgeClient) {
+  constructor(bridge: BridgeClient, repositoryRoot = process.cwd()) {
     this.bridge = bridge;
-  }
-
-  actorForSession(sessionId: string): string {
-    return `deepseek-harness:${sessionId}`;
+    this.repositoryRoot = resolve(repositoryRoot);
   }
 
   getHandle(sessionId: string): WorkspaceHandle | undefined {
@@ -48,12 +58,12 @@ export class WorkspaceBindingService {
 
   async claim(request: WorkspaceClaimRequest): Promise<WorkspaceHandle> {
     this.validateSubagentScope(request);
-    const actor = this.actorForSession(request.session_id);
+    const path = this.validatePath(request.path ?? this.repositoryRoot);
     const response = await this.bridge.requestMethod("workspace.claim", {
       session_id: request.session_id,
-      workspace_id: request.workspace_id,
-      mode: request.mode,
-      actor,
+      path,
+      ...(request.worktree_id ? { worktree_id: request.worktree_id } : {}),
+      ...(request.lease_ttl_ms !== undefined ? { lease_ttl_ms: request.lease_ttl_ms } : {}),
       ...(request.parent_session_id ? { parent_session_id: request.parent_session_id } : {}),
     });
     if (response.state !== "success") {
@@ -65,13 +75,17 @@ export class WorkspaceBindingService {
         retryable,
       );
     }
-    const result = response.result as { lease_fence?: number };
+    const result = this.parseLeaseResult(response.result, "workspace.claim");
     const handle: WorkspaceHandle = {
-      workspace_id: request.workspace_id,
+      workspace_id: result.workspace_id,
       session_id: request.session_id,
-      lease_fence: result.lease_fence ?? 1,
-      actor,
-      mode: request.mode,
+      owner: result.owner,
+      fence: result.fence,
+      expires_at: result.expires_at,
+      ...(request.lease_ttl_ms !== undefined ? { lease_ttl_ms: request.lease_ttl_ms } : {}),
+      lease_fence: result.fence,
+      actor: result.owner,
+      ...(request.mode ? { mode: request.mode } : {}),
       ...(request.parent_session_id ? { parent_session_id: request.parent_session_id } : {}),
     };
     this.handles.set(request.session_id, handle);
@@ -83,11 +97,13 @@ export class WorkspaceBindingService {
     if (!handle) {
       throw new WorkspaceBindingError("stale_workspace_handle", "stale workspace handle", false);
     }
+    const fence = handle.fence === handle.lease_fence ? handle.fence : handle.lease_fence;
     const response = await this.bridge.requestMethod("workspace.renew", {
       session_id: sessionId,
       workspace_id: handle.workspace_id,
-      lease_fence: handle.lease_fence,
-      actor: handle.actor,
+      owner: handle.owner,
+      fence,
+      ...(handle.lease_ttl_ms !== undefined ? { lease_ttl_ms: handle.lease_ttl_ms } : {}),
     });
     if (response.state !== "success") {
       const retryable = response.error?.data?.retryable ?? false;
@@ -97,6 +113,11 @@ export class WorkspaceBindingService {
         retryable,
       );
     }
+    const renewed = this.parseLeaseResult(response.result, "workspace.renew");
+    handle.owner = renewed.owner;
+    handle.fence = renewed.fence;
+    handle.lease_fence = renewed.fence;
+    handle.expires_at = renewed.expires_at;
   }
 
   async release(sessionId: string): Promise<void> {
@@ -107,8 +128,8 @@ export class WorkspaceBindingService {
     const response = await this.bridge.requestMethod("workspace.release", {
       session_id: sessionId,
       workspace_id: handle.workspace_id,
-      lease_fence: handle.lease_fence,
-      actor: handle.actor,
+      owner: handle.owner,
+      fence: handle.fence,
     });
     if (response.state !== "success") {
       const retryable = response.error?.data?.retryable ?? false;
@@ -148,7 +169,8 @@ export class WorkspaceBindingService {
         false,
       );
     }
-    if (request.mode === "linked" && parent.workspace_id !== request.workspace_id) {
+    const requestedScope = request.workspace_id ?? request.worktree_id;
+    if (request.mode === "linked" && requestedScope && parent.workspace_id !== requestedScope) {
       throw new WorkspaceBindingError(
         "subagent_scope_violation",
         "linked subagent cannot claim a different workspace than parent",
@@ -163,4 +185,63 @@ export class WorkspaceBindingService {
       );
     }
   }
+
+  private validatePath(path: string): string {
+    if (!isAbsolute(path)) {
+      throw new WorkspaceBindingError("invalid_workspace_path", "workspace path must be absolute", false);
+    }
+    const resolved = resolve(path);
+    const escaped = relative(this.repositoryRoot, resolved);
+    if (escaped === ".." || escaped.startsWith(`..${requireSeparator()}`) || isAbsolute(escaped)) {
+      throw new WorkspaceBindingError("workspace_scope_mismatch", "workspace path escapes repository root", false);
+    }
+    try {
+      const real = realpathSync.native(resolved);
+      const realRoot = realpathSync.native(this.repositoryRoot);
+      const realRelative = relative(realRoot, real);
+      if (realRelative === ".." || realRelative.startsWith(`..${requireSeparator()}`) || isAbsolute(realRelative)) {
+        throw new WorkspaceBindingError("workspace_scope_mismatch", "workspace symlink escapes repository root", false);
+      }
+    } catch (error) {
+      if (error instanceof WorkspaceBindingError) {
+        throw error;
+      }
+      // A new worktree path may not exist until the server creates it. The
+      // lexical containment check above remains mandatory for that case.
+    }
+    return resolved;
+  }
+
+  private parseLeaseResult(value: unknown, action: string): {
+    workspace_id: string;
+    owner: string;
+    fence: number;
+    expires_at: number | null | undefined;
+  } {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new WorkspaceBindingError("invalid_bridge_result", `${action} returned a malformed lease`, false);
+    }
+    const result = value as Record<string, unknown>;
+    const fence = result.fence ?? result.lease_fence;
+    if (
+      typeof result.workspace_id !== "string" ||
+      typeof result.owner !== "string" ||
+      typeof fence !== "number" ||
+      !Number.isSafeInteger(fence)
+    ) {
+      throw new WorkspaceBindingError("invalid_bridge_result", `${action} returned an incomplete lease`, false);
+    }
+    return {
+      workspace_id: result.workspace_id,
+      owner: result.owner,
+      fence,
+      expires_at: typeof result.expires_at === "number" || result.expires_at === null
+        ? result.expires_at
+        : undefined,
+    };
+  }
+}
+
+function requireSeparator(): string {
+  return process.platform === "win32" ? "\\\\" : "/";
 }

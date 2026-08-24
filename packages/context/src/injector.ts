@@ -1,4 +1,5 @@
 import { redactPayload } from "@libra/dsh-session";
+import { utf8ByteLength } from "@libra/dsh-bridge-client";
 import type { ToolsFacade } from "@libra/dsh-tools";
 
 export interface ContextAnchor {
@@ -12,6 +13,20 @@ export interface ContextSlice {
   text: string;
   anchor: ContextAnchor;
   warnings: string[];
+}
+
+export interface ContextHost {
+  injectContext?: (input: {
+    session_id: string;
+    text: string;
+    anchor: ContextAnchor;
+  }) => Promise<void> | void;
+}
+
+export interface ContextInjectorOptions {
+  host?: ContextHost;
+  maxTokens?: number;
+  maxBytes?: number;
 }
 
 interface ContextPart {
@@ -29,12 +44,16 @@ const PRIVACY_RANK: Record<ContextPart["privacy"], number> = {
 
 export class ContextInjector {
   private readonly tools: ToolsFacade;
-  private readonly maxTokens = 1500;
-  private readonly maxBytes = 4096;
+  private readonly host: ContextHost | undefined;
+  private readonly maxTokens: number;
+  private readonly maxBytes: number;
   private readonly anchors: Map<string, ContextAnchor> = new Map();
 
-  constructor(tools: ToolsFacade) {
+  constructor(tools: ToolsFacade, options?: ContextInjectorOptions) {
     this.tools = tools;
+    this.host = options?.host;
+    this.maxTokens = options?.maxTokens ?? 1500;
+    this.maxBytes = options?.maxBytes ?? 4096;
   }
 
   async inject(sessionId: string, intent?: string, checkpointId?: string): Promise<ContextSlice> {
@@ -61,10 +80,36 @@ export class ContextInjector {
       anchor_id: `${sessionId}:${intent ?? "default"}`,
       source: "libra_context",
       schema_version: "1",
-      token_budget: Math.min(this.maxTokens, Math.ceil(text.length / 3)),
+      token_budget: Math.min(this.maxTokens, Math.ceil(utf8ByteLength(text) / 4)),
     };
     this.anchors.set(sessionId, anchor);
+    if (this.host?.injectContext) {
+      try {
+        await this.host.injectContext({ session_id: sessionId, text, anchor });
+      } catch (error) {
+        warnings.push(`context injection failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     return { text, anchor, warnings };
+  }
+
+  async resumeAfterCompactionAsync(
+    sessionId: string,
+    parentSessionId: string,
+    intent = "resume",
+  ): Promise<ContextSlice | undefined> {
+    if (!this.anchors.has(parentSessionId)) {
+      return undefined;
+    }
+    return this.inject(sessionId, intent);
+  }
+
+  disposeSession(sessionId: string): void {
+    this.anchors.delete(sessionId);
+  }
+
+  dispose(): void {
+    this.anchors.clear();
   }
 
   resumeAfterCompaction(sessionId: string, parentSessionId: string): ContextAnchor | undefined {
@@ -87,6 +132,8 @@ export class ContextInjector {
     const record = data as Record<string, unknown>;
     const parts: ContextPart[] = [];
     const buckets: Array<{ key: string; priority: number; privacy: ContextPart["privacy"] }> = [
+      { key: "sessions", priority: 1, privacy: "internal" },
+      { key: "recent_checkpoints", priority: 2, privacy: "internal" },
       { key: "history", priority: 1, privacy: "internal" },
       { key: "decisions", priority: 2, privacy: "internal" },
       { key: "evidence", priority: 3, privacy: "public" },
@@ -134,12 +181,12 @@ export class ContextInjector {
         continue;
       }
       const slice = redacted.payload;
-      const nextBytes = bytes + slice.length;
+      const nextBytes = bytes + utf8ByteLength(slice);
       if (nextBytes > this.maxBytes) {
         warnings.push(`${part.source}: truncated by byte budget`);
         const remaining = this.maxBytes - bytes;
         if (remaining > 0) {
-          redactedParts.push(slice.slice(0, remaining));
+          redactedParts.push(sliceByUtf8Bytes(slice, remaining));
           bytes = this.maxBytes;
         }
         break;
@@ -148,11 +195,22 @@ export class ContextInjector {
       bytes = nextBytes;
     }
     let text = redactedParts.join("\n");
-    const tokenEstimate = Math.ceil(text.length / 3);
+    const tokenEstimate = Math.ceil(utf8ByteLength(text) / 4);
     if (tokenEstimate > this.maxTokens) {
       warnings.push("context truncated by token budget");
-      text = text.slice(0, this.maxTokens * 3);
+      text = sliceByUtf8Bytes(text, this.maxTokens * 4);
     }
     return { text, warnings };
   }
+}
+
+function sliceByUtf8Bytes(value: string, maxBytes: number): string {
+  if (utf8ByteLength(value) <= maxBytes) {
+    return value;
+  }
+  let end = Math.min(value.length, maxBytes);
+  while (end > 0 && utf8ByteLength(value.slice(0, end)) > maxBytes) {
+    end--;
+  }
+  return value.slice(0, end);
 }

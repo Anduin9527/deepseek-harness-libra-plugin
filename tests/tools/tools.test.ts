@@ -65,21 +65,35 @@ describe("tools:approval-matrix", () => {
   it("denies restore tools unless restore policy is enabled", async () => {
     const connected = await connectTools({ ...defaultPolicy, allowRestore: false });
     bridge = connected.bridge;
-    const denied = await connected.tools.invoke("libra_restore_checkpoint", { session_id: "s1" });
+    const denied = await connected.tools.invoke("libra_restore_checkpoint", {
+      session_id: "s1",
+      checkpoint_id: "cp-1",
+      expected_head: "HEAD",
+      operation_id: "restore-op-1",
+    });
     expect(denied.status).toBe("error");
 
     await bridge.close();
     bridge = new BridgeClient({ executable: wrapper, cwd: repoRoot, env: { PATH: process.env.PATH ?? "" } });
     await bridge.connect();
     const allowedTools = new ToolsFacade(bridge, { ...defaultPolicy, allowRestore: true });
-    const allowed = await allowedTools.invoke("libra_restore_checkpoint", { session_id: "s1" });
+    const allowed = await allowedTools.invoke("libra_restore_checkpoint", {
+      session_id: "s1",
+      checkpoint_id: "cp-1",
+      expected_head: "HEAD",
+      operation_id: "restore-op-1",
+    });
     expect(allowed.status).toBe("ok");
   });
 
   it("denies write tools unless write policy is enabled", async () => {
     const connected = await connectTools({ ...defaultPolicy, allowWrite: true });
     bridge = connected.bridge;
-    const result = await connected.tools.invoke("libra_commit", { session_id: "s1" });
+    const result = await connected.tools.invoke("libra_commit", {
+      session_id: "s1",
+      message: "test commit",
+      operation_id: "commit-op-1",
+    });
     expect(result.status).toBe("ok");
   });
 });

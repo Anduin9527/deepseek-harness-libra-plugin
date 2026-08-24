@@ -51,7 +51,6 @@ describe("workspace:actor-binding", () => {
       mode: "isolated",
     });
     expect(handle.actor).toBe("deepseek-harness:actor-test");
-    expect(workspace.actorForSession("actor-test")).toBe(handle.actor);
     await workspace.release("actor-test");
   });
 });

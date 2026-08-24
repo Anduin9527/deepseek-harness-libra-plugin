@@ -65,6 +65,9 @@ importers:
 
   packages/context:
     dependencies:
+      '@libra/dsh-bridge-client':
+        specifier: workspace:*
+        version: link:../bridge-client
       '@libra/dsh-session':
         specifier: workspace:*
         version: link:../session
@@ -94,6 +97,9 @@ importers:
 
   packages/ui:
     dependencies:
+      '@libra/dsh-bridge-client':
+        specifier: workspace:*
+        version: link:../bridge-client
       '@libra/dsh-session':
         specifier: workspace:*
         version: link:../session

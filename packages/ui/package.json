@@ -17,6 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@libra/dsh-bridge-client": "workspace:*",
     "@libra/dsh-session": "workspace:*",
     "@libra/dsh-tools": "workspace:*",
     "@libra/dsh-workspace": "workspace:*"

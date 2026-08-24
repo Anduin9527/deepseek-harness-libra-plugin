@@ -1,10 +1,12 @@
 import { build } from "esbuild";
-import { readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(root, "packages/bundle/package.json"), "utf8"));
+const protocolSource = join(root, "protocol");
+const protocolTarget = join(root, "packages/bundle/dist/protocol");
 
 await build({
   entryPoints: [join(root, "packages/bundle/src/index.ts")],
@@ -16,6 +18,11 @@ await build({
   external: ["@deepseek-ai/cordis"],
   sourcemap: true,
 });
+
+if (!existsSync(protocolSource)) {
+  throw new Error("protocol fixture directory is missing; cannot build a self-contained bundle");
+}
+cpSync(protocolSource, protocolTarget, { recursive: true });
 
 const publishable = {
   ...pkg,

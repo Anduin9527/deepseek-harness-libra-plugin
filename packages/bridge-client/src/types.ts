@@ -1,3 +1,5 @@
+import type { BridgeLimits } from "@libra/dsh-protocol";
+
 export type BridgeRequestTerminalState =
   | "success"
   | "error_retryable"
@@ -29,7 +31,7 @@ export interface JsonRpcRequest {
 
 export interface InitializeResult {
   protocol: { major: number; minor: number };
-  limits: Record<string, number>;
+  limits: BridgeLimits;
   methods: string[];
   source: string;
 }

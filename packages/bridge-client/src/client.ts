@@ -27,6 +27,7 @@ export class BridgeClientError extends Error {
     | "not_connected"
     | "handshake_failed"
     | "protocol_violation"
+    | "queue_full"
     | "request_timeout"
     | "child_crashed";
 
@@ -52,6 +53,7 @@ interface InternalState {
   disposed: boolean;
   lineReader: ReturnType<typeof createInterface>;
   pendingById: Map<string, PendingWaiter>;
+  exitPromise: Promise<void>;
 }
 
 function requestKey(id: number | string | null | undefined): string {
@@ -65,6 +67,8 @@ export class BridgeClient {
   private state: InternalState | null = null;
   private readonly config: BridgeClientConfig;
   private readonly receiver: ProtocolReceiverState;
+  private requestTail: Promise<void> = Promise.resolve();
+  private queuedRequests = 0;
 
   constructor(config: BridgeClientConfig, receiver?: ProtocolReceiverState) {
     this.config = normalizeBridgeConfig(config);
@@ -100,8 +104,12 @@ export class BridgeClient {
     }
 
     const lineReader = createInterface({ input: child.stdout });
+    child.stderr?.resume();
     const pendingById = new Map<string, PendingWaiter>();
     const requests = new Map<string, BridgeRequestRecord>();
+    const exitPromise = new Promise<void>((resolve) => {
+      child.once("exit", () => resolve());
+    });
 
     const state: InternalState = {
       child,
@@ -111,20 +119,15 @@ export class BridgeClient {
       disposed: false,
       lineReader,
       pendingById,
+      exitPromise,
     };
 
     child.on("error", (error) => {
       if (state.disposed) {
         return;
       }
-      state.disposed = true;
-      this.state = null;
       const bridgeError = new BridgeClientError("child_crashed", `bridge child error: ${error.message}`);
-      for (const pending of pendingById.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(bridgeError);
-      }
-      pendingById.clear();
+      this.failConnection(state, bridgeError);
     });
 
     lineReader.on("line", (line) => {
@@ -133,17 +136,8 @@ export class BridgeClient {
 
     child.on("exit", (code, signal) => {
       if (!state.disposed) {
-        state.disposed = true;
-        this.state = null;
         const reason = `bridge child exited (code=${code ?? "null"}, signal=${signal ?? "null"})`;
-        for (const pending of pendingById.values()) {
-          clearTimeout(pending.timer);
-          pending.reject(new BridgeClientError("child_crashed", reason));
-        }
-        pendingById.clear();
-        if (!child.killed) {
-          child.kill();
-        }
+        this.failConnection(state, new BridgeClientError("child_crashed", reason));
       }
     });
 
@@ -214,7 +208,54 @@ export class BridgeClient {
     if (!state.contract.methods.includes(method)) {
       throw new BridgeClientError("protocol_violation", `method ${method} is not in contract allowlist`);
     }
+    if (this.queuedRequests >= state.contract.limits.max_inflight) {
+      throw new BridgeClientError("queue_full", "bridge request queue is full");
+    }
 
+    this.queuedRequests += 1;
+    const operation = this.requestTail.then(() => this.performRequest(state, method, params));
+    this.requestTail = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    try {
+      return await operation;
+    } finally {
+      this.queuedRequests -= 1;
+    }
+  }
+
+  listRequests(): BridgeRequestRecord[] {
+    const state = this.state;
+    if (!state) {
+      return [];
+    }
+    return [...state.requests.values()];
+  }
+
+  async close(): Promise<void> {
+    const state = this.state;
+    if (!state) {
+      return;
+    }
+    if (!state.disposed) {
+      this.failConnection(
+        state,
+        new BridgeClientError("not_connected", "bridge client closed"),
+      );
+    }
+    this.state = null;
+    await this.awaitChildExit(state);
+  }
+
+  private async performRequest(
+    state: InternalState,
+    method: string,
+    params?: unknown,
+  ): Promise<CompletedRequest> {
+    if (state.disposed || this.state !== state) {
+      throw new BridgeClientError("not_connected", "bridge client is not connected");
+    }
     const response = await this.request(state, method, params);
     const id = response.id ?? state.nextId - 1;
     const terminal = classifyTerminalState(response);
@@ -229,33 +270,16 @@ export class BridgeClient {
     return completed;
   }
 
-  listRequests(): BridgeRequestRecord[] {
-    const state = this.state;
-    if (!state) {
-      return [];
-    }
-    return [...state.requests.values()];
-  }
-
-  async close(): Promise<void> {
-    const state = this.state;
-    if (!state || state.disposed) {
+  private async awaitChildExit(state: InternalState): Promise<void> {
+    const exited = await Promise.race([
+      state.exitPromise.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 1_000)),
+    ]);
+    if (exited) {
       return;
     }
-    state.disposed = true;
-    state.lineReader.close();
-    if (state.child.stdin) {
-      state.child.stdin.end();
-    }
-    for (const pending of state.pendingById.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(new BridgeClientError("not_connected", "bridge client closed"));
-    }
-    state.pendingById.clear();
-    if (!state.child.killed) {
-      state.child.kill();
-    }
-    this.state = null;
+    state.child.kill("SIGKILL");
+    await state.exitPromise;
   }
 
   private handleStdoutLine(state: InternalState, line: string): void {
@@ -274,21 +298,26 @@ export class BridgeClient {
       state.pendingById.delete(key);
       pending.resolve(response);
     } catch (error) {
-      for (const pending of state.pendingById.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(
-          error instanceof Error
-            ? error
-            : new BridgeClientError("protocol_violation", String(error)),
-        );
-      }
-      state.pendingById.clear();
-      state.disposed = true;
-      this.state = null;
-      if (!state.child.killed) {
-        state.child.kill();
-      }
+      this.failConnection(
+        state,
+        error instanceof Error
+          ? error
+          : new BridgeClientError("protocol_violation", String(error)),
+      );
     }
+  }
+
+  private failConnection(state: InternalState, error: Error): void {
+    if (state.disposed) return;
+    state.disposed = true;
+    state.lineReader.close();
+    state.child.stdin?.end();
+    for (const pending of state.pendingById.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    state.pendingById.clear();
+    if (!state.child.killed) state.child.kill();
   }
 
   private request(
@@ -332,14 +361,16 @@ export class BridgeClient {
 
     return new Promise<JsonRpcResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
-        state.pendingById.delete(key);
         state.requests.set(key, {
           id,
           method,
           state: "error_fatal",
           error: { code: 1010, message: "request deadline exceeded" },
         });
-        reject(new BridgeClientError("request_timeout", `request ${method} timed out`));
+        this.failConnection(
+          state,
+          new BridgeClientError("request_timeout", `request ${method} timed out`),
+        );
       }, this.config.requestTimeoutMs ?? 30_000);
 
       state.pendingById.set(key, { resolve, reject, timer });

@@ -15,7 +15,12 @@ await build({
   platform: "node",
   format: "esm",
   target: "node22",
-  external: ["@deepseek-ai/cordis"],
+  external: [
+    "@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-agent",
+    "@deepseek-ai/dsh-llm",
+    "@deepseek-ai/dsh-session",
+  ],
   sourcemap: true,
 });
 
@@ -33,13 +38,13 @@ const publishable = {
       types: "./dist/index.d.ts",
       default: "./dist/index.js",
     },
+    "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
   },
-  files: ["dist", "cordis.patch.yml"],
+  files: ["dist", "cordis.patch.yml", "README.md", "LICENSE"],
   dependencies: {},
-  peerDependencies: {
-    "@deepseek-ai/cordis": ">=0.1.0",
-  },
+  peerDependencies: pkg.peerDependencies,
+  peerDependenciesMeta: pkg.peerDependenciesMeta,
 };
 
 writeFileSync(

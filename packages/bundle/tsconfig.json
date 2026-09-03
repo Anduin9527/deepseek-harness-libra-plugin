@@ -6,12 +6,7 @@
   },
   "references": [
     { "path": "../protocol" },
-    { "path": "../bridge-client" },
-    { "path": "../session" },
-    { "path": "../tools" },
-    { "path": "../workspace" },
-    { "path": "../context" },
-    { "path": "../ui" }
+    { "path": "../bridge-client" }
   ],
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts"]
 }

@@ -13,7 +13,7 @@ rl.on("line", (line) => {
       `${JSON.stringify({
         jsonrpc: "2.0",
         result: {
-          protocol: { major: 1, minor: 0 },
+          protocol: { major: 1, minor: 1 },
           limits: {
             max_frame_bytes: 262144,
             max_inflight: 64,

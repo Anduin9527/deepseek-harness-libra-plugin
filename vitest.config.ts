@@ -28,6 +28,15 @@ export default defineConfig({
       "@libra/dsh-bundle": fileURLToPath(
         new URL("./packages/bundle/src/index.ts", import.meta.url),
       ),
+      "@deepseek-ai/dsh-llm/message": fileURLToPath(
+        new URL("./tests/fixtures/dsh-llm.ts", import.meta.url),
+      ),
+      "@deepseek-ai/dsh-llm": fileURLToPath(
+        new URL("./tests/fixtures/dsh-llm.ts", import.meta.url),
+      ),
+      "@deepseek-ai/schemastery": fileURLToPath(
+        new URL("./tests/fixtures/schemastery.ts", import.meta.url),
+      ),
     },
   },
   test: {

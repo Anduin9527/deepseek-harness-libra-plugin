@@ -1,5 +1,9 @@
 # Context injection
 
+> Deferred legacy `context.get` design. The current bundle injects only the
+> audited `memory.recall` prompt section; `context.get` remains an unrelated
+> side-effect-free workspace summary.
+
 `@libra/dsh-context` queries Libra `context.get` through the tools facade and injects a bounded,
 redacted summary (≤ 4 KiB / 1,500 tokens per turn) with `anchor_id`, `schema_version`, and
 `source` metadata. The actual response buckets are `sessions` and `recent_checkpoints`; unknown

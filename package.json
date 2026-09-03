@@ -5,17 +5,21 @@
   "type": "module",
   "packageManager": "pnpm@10.13.1",
   "engines": {
-    "node": ">=22.0.0"
+    "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "build": "tsc -b && node scripts/build-bundle-dist.mjs && cp packages/bundle/lib/index.d.ts packages/bundle/dist/index.d.ts",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "pack:bundle": "node scripts/pack-bundle.mjs",
     "test:contract": "node scripts/test-contract.mjs",
     "test:integration": "node scripts/test-integration.mjs"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/schemastery": "3.18.1",
     "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.1",
     "esbuild": "^0.28.2",

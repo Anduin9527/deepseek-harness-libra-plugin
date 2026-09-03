@@ -23,14 +23,15 @@ export interface BridgeErrorCode {
 export interface FixtureProvenance {
   libra_version: string;
   fixture_origin: string;
-  golden_frames_path?: string;
+  golden_frames_path: string;
+  authority_revision: string;
 }
 
 export interface AgentBridgeContract {
   protocol_version: ProtocolVersion;
   source: string;
   jsonrpc_version: "2.0";
-  fixture_provenance?: FixtureProvenance;
+  fixture_provenance: FixtureProvenance;
   methods: readonly string[];
   limits: BridgeLimits;
   error_codes: Record<string, BridgeErrorCode>;

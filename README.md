@@ -1,161 +1,164 @@
-# DeepSeek Harness Libra Plugin
+# DeepSeek Harness Libra Memory Adapter
 
-`@libra-tools/dsh-bundle` is a [DeepSeek Harness](https://www.npmjs.com/package/@deepseek-ai/dsh) profile plugin that connects Harness sessions to [Libra](https://github.com/libra) through a typed JSON-RPC NDJSON bridge (`libra agent bridge --stdio`).
+`@libra-tools/dsh-bundle` injects audited Libra project Memory into DeepSeek
+Harness (DSH) model requests. DSH owns the AgentLoop and Session lifecycle;
+Libra remains authoritative for Memory selection, ACL and sensitivity policy,
+budgeting, receipt persistence, and prompt rendering.
 
-Harness owns the agent loop, session persistence, and approval policy. Libra owns repository state, checkpoints, workspace leases, and durable projections. This plugin is the TypeScript client and Cordis bundle that sits between them—it does not read `.libra/libra.db` or spawn arbitrary shell commands.
+This worktree targets:
 
-**npm:** [@libra-tools/dsh-bundle](https://www.npmjs.com/package/@libra-tools/dsh-bundle) · **Harness pin:** `dsh-v0.1.0-rc.7` · **Libra bridge:** protocol v1 (authority receipt from libra `0.21.22`)
+- DSH `v0.1.2-alpha.1`, commit
+  `cd5ef8148158c3a752a658978873241fdf8e2bbc`;
+- Libra Agent Bridge protocol `1.1`, with `memory.recall` in the negotiated
+  21-method list;
+- Node.js `^22.19.0 || >=24.0.0`, matching the pinned DSH checkout.
 
-## What it does
+It is a development integration and is not ready for npm publication. The
+protocol authority receipt intentionally remains `UNRELEASED` until the
+corresponding Libra change has a fixed commit.
 
-When you run DeepSeek Harness with the `libra` profile, the bundle:
+## Runtime boundary
 
-1. Registers a Cordis layer (`libra`) that loads bridge-backed Libra integration.
-2. Spawns `libra agent bridge --stdio` as a long-lived child process (fixed argv; model cannot override the executable).
-3. Negotiates protocol v1 via `initialize`, then routes all Libra writes and queries through an allowlisted method set.
-4. Projects Harness session events through a local outbox (redaction, batching, crash resume) before `event.append` / `session.flush` on the bridge.
-5. Exposes typed tools (`libra_status`, `libra_commit`, …) with approval gates for write/restore operations.
-6. Binds workspace leases and actor identity (`deepseek-harness:<session_id>`) so the model cannot forge provenance.
-7. Queries bounded Libra context (`sessions`/`recent_checkpoints`) and renders redacted UI cards for checkpoint/diff/commit/evidence/approval states when the Harness host exposes those capabilities.
+The public Cordis interface is deliberately small:
 
-```
-┌─────────────────────┐     NDJSON JSON-RPC      ┌──────────────────────────┐
-│  DeepSeek Harness   │ ◄──────────────────────► │  libra agent bridge      │
-│  (agent loop, UI,   │   stdin / stdout         │  --stdio (Libra 0.21.22) │
-│   approval policy)  │                          └────────────┬─────────────┘
-└──────────┬──────────┘                                       │
-           │ @libra-tools/dsh-bundle                           │ Rust bridge
-           │ (this repo)                                       ▼
-           │                                    Libra storage, workspace,
-           │                                    checkpoints, provenance
-           ▼
-     Local outbox, redaction,
-     typed tools facade
+```ts
+export const name = "@libra-tools/dsh-bundle";
+export const inject = ["agents", "sessions"];
+export const Config = z.object({
+  libraExecutable: z.string(),
+  repositoryRoot: z.string(),
+});
+export async function apply(ctx, config): Promise<AsyncDisposer>;
 ```
 
-## Requirements
+Configuration has two optional values:
 
-| Component | Version / notes |
+| Field | Resolution |
 | --- | --- |
-| Node.js | `>= 22` |
-| DeepSeek Harness | `dsh-v0.1.0-rc.7` (`@deepseek-ai/dsh`) |
-| Libra | `0.21.22` authority receipt with `agent bridge --stdio` |
-| Repository | Libra-initialized worktree (`libra init`) |
+| `libraExecutable` | Config, then `LIBRA_BINARY`; must resolve to an absolute executable file |
+| `repositoryRoot` | Config, then `LIBRA_REPO`, then `process.cwd()`; canonicalized at startup |
 
-Peer dependency at runtime: `@deepseek-ai/cordis` (provided by Harness).
+One plugin composition owns one long-lived
+`libra agent bridge --stdio` child. The adapter verifies protocol negotiation,
+tracks existing and newly created DSH sessions, opens Libra sessions lazily,
+and closes only sessions that DSH actually disposes.
 
-## Install
+On the first accepted AgentLoop step, the adapter extracts accepted
+user-sourced text and calls:
 
-### From npm (recommended)
-
-```bash
-"$DSH_CLI" plugin --profile libra add @libra-tools/dsh-bundle
-"$DSH_CLI" --profile libra --dump-config
+```json
+{
+  "method": "memory.recall",
+  "params": {
+    "session_id": "dsh-session-id",
+    "query_text": "accepted user query"
+  }
+}
 ```
 
-### From this monorepo (development)
+The returned `prompt_section` is hash-verified and appended as one
+`libra-memory` user message with receipt, view, bundle, selection, and budget
+metadata. The same byte sequence enters the DSH session log and model request.
+After compaction or overflow retry, `replaceGeneration` triggers at most one
+refresh for that turn and generation.
 
-The workspace `packages/bundle` manifest uses `workspace:*` dependencies and is not installable outside the monorepo. Build a self-contained staging artifact first:
+Transport, protocol, scope, Memory, and hash errors stop the model call.
+`delivery: null` and a zero-hit delivery are the only no-Memory success
+paths. The adapter does not re-render, sort, trim, or redact Libra's returned
+section.
 
-```bash
-pnpm install
-pnpm build
-node scripts/stage-bundle-for-profile.mjs
-"$DSH_CLI" plugin --profile libra add file:/tmp/libra-dsh-bundle-<run>
-"$DSH_CLI" --profile libra --dump-config
-```
+## Current MVP scope
 
-Ensure the Libra binary is on `PATH`, or set `LIBRA_BINARY` when running integration tests / bundle runtime config.
+Included:
 
-## Model-visible tools
+- real Cordis Loader, Session, and AgentLoop integration;
+- audited Memory recall and exact message injection;
+- compaction-generation and request-retry refresh hooks;
+- resume/HMR session seeding and tracked disposal;
+- FIFO bridge transport, stderr draining, timeout handling, and child shutdown.
 
-All tools map to contract methods only—no wildcard bridge access.
+Deferred:
 
-| Tool | Bridge method | Risk | Default |
-| --- | --- | --- | --- |
-| `libra_context` | `context.get` | read | allowed |
-| `libra_status` | `status.get` | read | allowed |
-| `libra_diff` | `diff.get` | read | allowed |
-| `libra_history_search` | `history.search` | read | allowed |
-| `libra_checkpoint` | `checkpoint.list` | read | allowed |
-| `libra_review` | `review.run` | read | allowed |
-| `libra_commit` | `commit.create` | write | denied until approval |
-| `libra_restore_checkpoint` | `checkpoint.restore` | restore | denied until approval |
+- full DSH event projection and an outbox;
+- model-visible Libra tools;
+- workspace/UI integration;
+- automatic Episode generation;
+- same-turn query regeneration after steering;
+- npm publication.
 
-Tool results are always a single object: `{ schema_version, operation_id, status, data?, error?, warnings? }`. Bridge and transport failures surface as `status: "error"`—never silent empty success.
+Legacy packages for those deferred surfaces remain in the monorepo for now,
+but the published bundle does not compose or export them.
 
-See [docs/tools.md](docs/tools.md) for approval policy and error mapping.
+## DSH plugin authority
 
-## Monorepo packages
-
-Published artifact is only `@libra-tools/dsh-bundle`. Internal packages are compiled into the esbuild `dist/` bundle for profile install.
-
-| Package | Role |
-| --- | --- |
-| `@libra-tools/dsh-bundle` | Cordis bundle entry, profile install surface |
-| `@libra/dsh-protocol` | Loads `protocol/agent-bridge.v1.schema.json` (`DEP-LB-01` fixture) |
-| `@libra/dsh-bridge-client` | NDJSON transport, handshake, `requestMethod` client |
-| `@libra/dsh-session` | Event outbox, redaction, projection / flush / dispose |
-| `@libra/dsh-tools` | Typed tools facade + approval binding |
-| `@libra/dsh-workspace` | Workspace lease claim/renew/release, subagent scope |
-| `@libra/dsh-context` | Context injection with token/byte budget |
-| `@libra/dsh-ui` | Harness UI cards and action routing |
-
-## Security and privacy defaults
-
-- **Bridge-only:** no direct `.libra/` database or object store access from TypeScript.
-- **Fail-closed:** protocol major mismatch, actor/lease conflict, redaction uncertainty, and forbidden model parameters (e.g. `actor`, `repository_root`, `database_path`) are rejected.
-- **Redaction:** secrets and oversized payloads are blocked or stripped before outbox persistence and UI projection; failures retain diagnostic state instead of falling back to raw text.
-- **Actor binding:** `deepseek-harness:<session_id>` is derived by the authenticated Libra bridge session; model-supplied identity fields are rejected.
-
-Details: [docs/security.md](docs/security.md), [docs/privacy.md](docs/privacy.md).
-
-## Protocol authority
-
-Libra Rust bridge (`/run/media/eli/sea/gitmono/libra/src/internal/ai/agent_bridge/`) is the authoritative source for methods, limits, error codes, and handshake semantics. This repository stores a versioned receiver fixture at `protocol/agent-bridge.v1.schema.json` plus `protocol/agent-bridge.v1.receipt.json` (sourced from libra `0.21.22` at a fixed revision) and validates runtime behavior against it—not a second invented schema.
-
-Transport summary: one JSON-RPC 2.0 object per NDJSON line on stdout; stderr for diagnostics; 256 KiB frame cap; 30 s default deadline.
-
-See [docs/protocol/agent-bridge-v1.md](docs/protocol/agent-bridge-v1.md).
+There is no verified standalone plugin-template repository owned by the
+`deepseek-ai` GitHub organization at the pinned revision. This adapter follows
+the first-party [plugin tutorial](https://github.com/deepseek-ai/deepseek-harness/blob/cd5ef8148158c3a752a658978873241fdf8e2bbc/docs/user/develop/basic/index.md),
+[configuration contract](https://github.com/deepseek-ai/deepseek-harness/blob/cd5ef8148158c3a752a658978873241fdf8e2bbc/docs/user/develop/basic/config.md),
+[bundle/install contract](https://github.com/deepseek-ai/deepseek-harness/blob/cd5ef8148158c3a752a658978873241fdf8e2bbc/docs/user/develop/basic/publish.md),
+and exact Cordis source instead. Community templates were reviewed for useful
+pack/test conventions, but they are not treated as runtime authority.
 
 ## Development
 
 ```bash
-pnpm install
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm build
+pnpm install --frozen-lockfile
+pnpm check
 ```
 
-### Verification matrix
+The default Vitest suite uses a deterministic bridge process. It does not
+substitute for the pinned DSH runtime gate.
+
+All installs, builds, packs, and tests for this worktree are run in the Libra
+development container. `pnpm pack:bundle` produces the standalone nested
+bundle tarball used by `dsh plugin add`. The repository root remains a private
+workspace package, so direct GitHub-root installation is not supported in this
+MVP; use the packed tarball until the separate npm/repository-facade release
+slice.
+
+## Pinned DSH runtime gate
+
+Prepare a source checkout at the exact commit above, run its frozen install and
+build, then build this plugin. The integration runner packs the standalone
+bundle, creates a fresh `DSH_HOME`, installs it through the real
+`dsh plugin --profile headless add <tarball>` path, verifies profile
+reconciliation and patch composition, and runs the installed artifact through
+the real DSH Loader and AgentLoop:
 
 ```bash
-pnpm test:contract -- --protocol-version 1
-pnpm test:contract -- --libra-release <libra-authority-revision>
-pnpm test:contract -- --events
-pnpm test:contract -- --tools
-pnpm test:contract -- --workspace
-DSH_CLI="/absolute/path/to/pinned/dsh" \
-LIBRA_BINARY="/absolute/path/to/libra" \
-LIBRA_REPO="/absolute/path/to/initialized/libra-repo" \
-pnpm test:integration -- --profile libra --revision dsh-v0.1.0-rc.7 --context --ui
+DSH_CHECKOUT=/absolute/path/to/deepseek-harness \
+LIBRA_BINARY=/absolute/path/to/libra \
+LIBRA_REPO=/absolute/path/to/initialized/test-repo \
+LIBRA_GATE_QUERY=libradshlivegatefact \
+LIBRA_GATE_EXPECTED_SUBSTRING=cobalt-orchid-7319 \
+pnpm test:integration
 ```
 
-Real Libra gates require explicit `LIBRA_BINARY` and `LIBRA_REPO`; when either is absent, the tests remain `remote-pending`/skipped and do not substitute the fake bridge.
+The Libra test repository must already contain one admissible Memory fixture.
+The companion Libra ignored test
+`external_dsh_fixture_seeds_real_repository` writes it through the real
+`MemoryWriter` without adding a production write endpoint.
 
-## Documentation
+For one live acceptance with `deepseek-v4-flash`, keep the key in an owner-only
+file inside the development container and pass only its path to the runner:
 
-| Topic | Path |
-| --- | --- |
-| Profile setup | [docs/profile.md](docs/profile.md) |
-| Tools & approval | [docs/tools.md](docs/tools.md) |
-| Workspace & subagent | [docs/workspace.md](docs/workspace.md) |
-| Context injection | [docs/context.md](docs/context.md) |
-| UI cards | [docs/ui.md](docs/ui.md) |
-| Harness compatibility | [compatibility/harness-rc7.md](compatibility/harness-rc7.md) |
-| Release evidence | [docs/release-evidence-REL-TS-02.md](docs/release-evidence-REL-TS-02.md) |
-| Implementation plan | [docs/plan/plan-20260824.md](docs/plan/plan-20260824.md) |
+```bash
+DEEPSEEK_API_KEY_FILE=/cache/libra-secrets/deepseek-api-key \
+DSH_CHECKOUT=/absolute/path/to/deepseek-harness \
+LIBRA_BINARY=/absolute/path/to/libra \
+LIBRA_REPO=/absolute/path/to/initialized/test-repo \
+LIBRA_GATE_QUERY=libradshlivegatefact \
+LIBRA_GATE_EXPECTED_SUBSTRING=cobalt-orchid-7319 \
+pnpm test:integration -- --live
+```
+
+The keyless gate asserts that the installed artifact is active in the profile,
+the Memory source is present in the DSH session, the model request uses the
+identical text, and the exact receipt is durably present in Libra's database.
+On the live path the runner boots the standard installed `headless` profile,
+which uses `deepseek-v4-flash`, and asserts that its final assistant text equals
+the fact available only from the seeded Memory. The key value is read only by
+the runner and is never passed to install or profile-composition children.
 
 ## License
 

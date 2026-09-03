@@ -1,5 +1,9 @@
 # REL-TS-02 implementation evidence (2026-08-24)
 
+> Historical receipt, superseded for the Memory MVP by
+> `docs/release-evidence-MEM-DSH-01.md`. Its rc7 and `remote-pending` statements
+> describe the 2026-08-24 slice only.
+
 This is an implementation receipt, not a publish receipt. The family release
 remains pending until the fixed Libra binary/repository and pinned DSH host are
 available; no external pass is inferred from the fake bridge tests.

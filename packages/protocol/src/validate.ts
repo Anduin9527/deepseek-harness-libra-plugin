@@ -74,6 +74,35 @@ function readLimits(value: unknown, schemaPath: string) {
   };
 }
 
+function readFixtureProvenance(value: unknown, schemaPath: string) {
+  if (!isRecord(value)) {
+    throw new ProtocolReceiverError(
+      "invalid_fixture",
+      `protocol fixture at ${schemaPath} is missing fixture_provenance`,
+    );
+  }
+  const libra_version = value["libra_version"];
+  const fixture_origin = value["fixture_origin"];
+  const golden_frames_path = value["golden_frames_path"];
+  const authority_revision = value["authority_revision"];
+  if (
+    typeof libra_version !== "string"
+    || libra_version.length === 0
+    || typeof fixture_origin !== "string"
+    || fixture_origin.length === 0
+    || typeof golden_frames_path !== "string"
+    || golden_frames_path.length === 0
+    || typeof authority_revision !== "string"
+    || authority_revision.length === 0
+  ) {
+    throw new ProtocolReceiverError(
+      "invalid_fixture",
+      `protocol fixture at ${schemaPath} has invalid fixture_provenance`,
+    );
+  }
+  return { libra_version, fixture_origin, golden_frames_path, authority_revision };
+}
+
 export function validateContractShape(
   parsed: unknown,
   schemaPath: string,
@@ -91,6 +120,7 @@ export function validateContractShape(
   const methods = parsed["methods"];
   const limits = readLimits(parsed["limits"], schemaPath);
   const error_codes = parsed["error_codes"];
+  const fixture_provenance = readFixtureProvenance(parsed["fixture_provenance"], schemaPath);
 
   if (typeof source !== "string" || source.length === 0) {
     throw new ProtocolReceiverError(
@@ -140,6 +170,7 @@ export function validateContractShape(
     protocol_version,
     source,
     jsonrpc_version: "2.0",
+    fixture_provenance,
     methods: validatedMethods,
     limits,
     error_codes: error_codes as AgentBridgeContract["error_codes"],

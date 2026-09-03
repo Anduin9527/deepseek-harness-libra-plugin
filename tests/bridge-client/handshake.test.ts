@@ -40,9 +40,10 @@ describe("bridge-client handshake", () => {
   it("negotiates initialize protocol_version and capabilities", async () => {
     client = makeClient();
     const init = await client.connect();
-    expect(init.protocol).toEqual({ major: 1, minor: 0 });
+    expect(init.protocol).toEqual({ major: 1, minor: 1 });
     expect(init.source).toBe("deepseek-harness");
     expect(init.methods).toContain("session.open");
+    expect(init.methods).toContain("memory.recall");
     expect(init.limits.max_frame_bytes).toBe(256 * 1024);
     expect(client.negotiatedCapabilities?.source).toBe("deepseek-harness");
     const records = client.listRequests();
@@ -141,6 +142,57 @@ describe("bridge-client handshake", () => {
     await expect(client.requestMethod("status.get")).rejects.toMatchObject({
       code: "not_connected",
     });
+  });
+
+  it("single-flights concurrent requests in FIFO order", async () => {
+    client = makeClient();
+    await client.connect();
+    const completionOrder: string[] = [];
+    const slow = client.requestMethod("status.get", { kind: "delay", delay_ms: 75 })
+      .then((result) => {
+        completionOrder.push("slow");
+        return result;
+      });
+    const fast = client.requestMethod("status.get")
+      .then((result) => {
+        completionOrder.push("fast");
+        return result;
+      });
+
+    await Promise.all([slow, fast]);
+    expect(completionOrder).toEqual(["slow", "fast"]);
+  });
+
+  it("drains stderr and waits until the child exits", async () => {
+    client = new BridgeClient({
+      executable: wrapper,
+      cwd: repoRoot,
+      env: {
+        PATH: process.env.PATH ?? "",
+        LIBRA_SKIP_WEB_BUILD: "stderr-flood-close-delay",
+      },
+      requestTimeoutMs: 2_000,
+    });
+    await client.connect();
+
+    const started = Date.now();
+    await client.close();
+    expect(Date.now() - started).toBeGreaterThanOrEqual(50);
+  });
+
+  it("terminates the transport after a request timeout", async () => {
+    client = new BridgeClient({
+      executable: wrapper,
+      cwd: repoRoot,
+      env: { PATH: process.env.PATH ?? "" },
+      requestTimeoutMs: 250,
+    });
+    await client.connect();
+
+    await expect(client.requestMethod("status.get", { kind: "delay", delay_ms: 1_000 }))
+      .rejects.toMatchObject({ code: "request_timeout" });
+    await expect(client.requestMethod("status.get"))
+      .rejects.toMatchObject({ code: "not_connected" });
   });
 });
 

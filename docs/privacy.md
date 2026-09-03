@@ -1,5 +1,9 @@
 # Privacy and redaction
 
+> Deferred legacy design for session projection/outbox. The current Memory-only
+> bundle sends no DSH transcript events to Libra; Libra alone filters and renders
+> each `memory.recall` delivery.
+
 The session projection adapter never writes raw prompts, reasoning traces, environment
 variables, or detected secrets to Libra. Payloads are size-checked and scanned for common
 secret patterns before enqueue.

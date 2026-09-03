@@ -4,6 +4,9 @@
  * Speaks JSON-RPC 2.0 NDJSON on stdout; diagnostics on stderr only.
  */
 import { createInterface } from "node:readline";
+import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
+import { setTimeout } from "node:timers";
 
 const limits = {
   max_frame_bytes: 262144,
@@ -37,12 +40,20 @@ const methods = [
   "workspace.claim",
   "workspace.renew",
   "workspace.release",
+  "memory.recall",
 ];
+
+if (process.env.LIBRA_SKIP_WEB_BUILD?.includes("close-delay")) {
+  process.on("SIGTERM", () => {
+    setTimeout(() => process.exit(0), 75);
+  });
+}
 
 /** @type {Map<string, { session_id: string; workspace_id: string; lease_fence: number; mode: string; parent_session_id?: string }>} */
 const leasesBySession = new Map();
 /** @type {Map<string, { session_id: string; workspace_id: string; lease_fence: number }>} */
 const leasesByWorkspace = new Map();
+const activeSessions = new Set();
 
 function writeResponse(payload) {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
@@ -83,10 +94,14 @@ rl.on("line", (line) => {
       });
       return;
     }
+    if (process.env.LIBRA_SKIP_WEB_BUILD?.includes("stderr-flood")) {
+      const block = Buffer.alloc(1024 * 1024, "x");
+      process.stderr.write(block);
+    }
     writeResponse({
       jsonrpc: "2.0",
       result: {
-        protocol: { major: 1, minor: 0 },
+        protocol: { major: 1, minor: 1 },
         limits,
         methods,
         source: "deepseek-harness",
@@ -233,6 +248,7 @@ rl.on("line", (line) => {
     return;
   }
   if (frame.method === "session.open") {
+    activeSessions.add(frame.params?.session_id);
     writeResponse({ jsonrpc: "2.0", result: { opened: true }, id });
     return;
   }
@@ -254,7 +270,62 @@ rl.on("line", (line) => {
     return;
   }
   if (frame.method === "session.close") {
+    activeSessions.delete(frame.params?.session_id);
     writeResponse({ jsonrpc: "2.0", result: { closed: true }, id });
+    return;
+  }
+  if (frame.method === "memory.recall") {
+    const sessionId = frame.params?.session_id;
+    if (!activeSessions.has(sessionId)) {
+      writeResponse({
+        jsonrpc: "2.0",
+        error: {
+          code: 1006,
+          message: "session scope mismatch",
+          data: { stable_code: "LBR-AGENT-032", retryable: false },
+        },
+        id,
+      });
+      return;
+    }
+    const query = frame.params?.query_text ?? "";
+    if (query === "bridge-error") {
+      writeResponse({
+        jsonrpc: "2.0",
+        error: {
+          code: -32603,
+          message: "audited Memory recall failed",
+          data: { stable_code: "LBR-MEMORY-005", retryable: true },
+        },
+        id,
+      });
+      return;
+    }
+    if (query === "null-delivery") {
+      writeResponse({ jsonrpc: "2.0", result: { schema_version: 1, data: { delivery: null } }, id });
+      return;
+    }
+    const promptSection = query === "zero-hit" || query === "empty-selection"
+      ? ""
+      : `Memory for ${query}`;
+    const digest = createHash("sha256").update(Buffer.from(promptSection, "utf8")).digest("hex");
+    writeResponse({
+      jsonrpc: "2.0",
+      result: {
+        schema_version: 1,
+        data: {
+          delivery: {
+            prompt_section: promptSection,
+            receipt_id: `receipt-${sessionId}`,
+            view_hash: `sha256:${"1".repeat(64)}`,
+            bundle_hash: query === "hash-mismatch" ? `sha256:${"0".repeat(64)}` : `sha256:${digest}`,
+            selected_count: query === "zero-hit" ? 0 : 1,
+            token_budget: 1600,
+          },
+        },
+      },
+      id,
+    });
     return;
   }
   if (frame.method === "context.get") {
@@ -274,6 +345,12 @@ rl.on("line", (line) => {
     return;
   }
   if (frame.method === "status.get") {
+    if (frame.params?.kind === "delay") {
+      setTimeout(() => {
+        writeResponse({ jsonrpc: "2.0", result: { delayed: true }, id });
+      }, frame.params.delay_ms ?? 50);
+      return;
+    }
     if (frame.params?.kind === "retryable") {
       writeResponse({
         jsonrpc: "2.0",

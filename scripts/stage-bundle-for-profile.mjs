@@ -7,7 +7,15 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = join(root, "packages/bundle/dist");
 const patch = join(root, "packages/bundle/cordis.patch.yml");
 const publishManifest = join(root, "packages/bundle/package.publish.json");
-if (!existsSync(dist) || !existsSync(patch) || !existsSync(publishManifest)) {
+const readme = join(root, "README.md");
+const license = join(root, "LICENSE");
+if (
+  !existsSync(dist)
+  || !existsSync(patch)
+  || !existsSync(publishManifest)
+  || !existsSync(readme)
+  || !existsSync(license)
+) {
   console.error("bundle dist/patch/publish manifest missing; run pnpm build first");
   process.exit(1);
 }
@@ -15,6 +23,8 @@ if (!existsSync(dist) || !existsSync(patch) || !existsSync(publishManifest)) {
 const staging = mkdtempSync(join(tmpdir(), "libra-dsh-bundle-"));
 cpSync(dist, join(staging, "dist"), { recursive: true });
 cpSync(patch, join(staging, "cordis.patch.yml"));
+cpSync(readme, join(staging, "README.md"));
+cpSync(license, join(staging, "LICENSE"));
 const publish = JSON.parse(
   readFileSync(publishManifest, "utf8"),
 );

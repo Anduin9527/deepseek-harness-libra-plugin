@@ -12,7 +12,7 @@
 The client sends:
 
 ```json
-{"jsonrpc":"2.0","method":"initialize","params":{"protocol":{"major":1,"minor":1}},"id":1}
+{"jsonrpc":"2.0","method":"initialize","params":{"protocol":{"major":1,"minor":0}},"id":1}
 ```
 
 The bridge returns capability negotiation: `protocol`, `limits`, `methods`, `source`.
@@ -37,18 +37,33 @@ The TypeScript client only spawns a configured `libra` executable with argv
 `agent bridge --stdio`. Model-provided executables or argv are rejected at
 configuration normalization.
 
-## Current Memory method
+## Event ingress and outbox (TS-03)
 
-After `session.open`, the Memory adapter calls `memory.recall` with only the DSH
-session id and accepted user query. Libra owns query normalization, repository
-scope, principal derivation, policy, selection, budget, rendering, and receipt
-persistence. A successful non-null response carries the exact prompt section and
-its receipt/view/bundle metadata; the adapter verifies the bundle hash before
-injection. Protocol, scope, transport, or Memory failures stop the model turn.
+Harness session events are batched by `(session_id, event_seq)` and sent through
+`event.append`. The plugin keeps a bounded, owner-only outbox under the Harness profile
+storage seam; `last_acked_seq` and `per_event` statuses drive durable state. Accepted or
+duplicate events are pruned, while conflict/rejected events remain bounded diagnostics.
+Duplicate `(session_id, event_seq)` with the same digest is a successful replay; digest
+conflicts are fail-closed. All frame, event, result, batch, outbox, and context limits use
+UTF-8 encoded byte counts.
 
-## Deferred legacy surfaces
+## Memory module extension (`1.1`)
 
-Event ingress, the durable TypeScript outbox, tools, UI, and general context
-projection described by the older TS-03 design are not composed or exported by
-the current Memory-only bundle. Their packages remain historical source material
-until a separate design and release slice reactivates them.
+Protocol minor `1.1` adds `memory.recall` without changing the existing v1
+methods. The plugin discovers the method through the `initialize.methods` list.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "memory.recall",
+  "params": {
+    "session_id": "dsh-session-id",
+    "query_text": "accepted user query"
+  },
+  "id": 2
+}
+```
+
+The result contains an optional delivery with `prompt_section`, `receipt_id`,
+`view_hash`, `bundle_hash`, `selected_count`, and `token_budget`. This method is
+used only by the Memory module; `context.get` retains its existing meaning.

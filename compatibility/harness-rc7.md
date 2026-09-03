@@ -1,8 +1,5 @@
 # Harness compatibility — dsh-v0.1.0-rc.7
 
-> Historical receipt. The current Memory MVP targets DSH `v0.1.2-alpha.1`; see
-> `compatibility/harness-alpha1.md` and `docs/compatibility.md`.
-
 | Component | Pin |
 | --- | --- |
 | DeepSeek Harness | `dsh-v0.1.0-rc.7` / `99f6f02fecdb7dff40c3fbc9470f5907c29f74ca` |

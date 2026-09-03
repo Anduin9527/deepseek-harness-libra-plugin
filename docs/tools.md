@@ -1,8 +1,5 @@
 # Libra tools (model-visible facade)
 
-> Deferred legacy design. The current Memory-only bundle does not register or
-> export model-visible Libra tools.
-
 | Tool | Bridge method | Risk |
 | --- | --- | --- |
 | `libra_context` | `context.get` | read |

@@ -1,9 +1,5 @@
 # Workspace modes
 
-> Deferred legacy design. The current Memory-only bundle accepts no client
-> workspace/lease parameters and uses the Libra bridge process's server-side
-> repository/worktree scope.
-
 | Mode | Behavior |
 | --- | --- |
 | `linked` | Linked worktree sharing common storage with scoped HEAD |

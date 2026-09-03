@@ -1,4 +1,4 @@
-# Harness compatibility — v0.1.2-alpha.1
+# Memory module compatibility — Harness v0.1.2-alpha.1
 
 | Component | Pin |
 | --- | --- |
@@ -7,7 +7,8 @@
 | Bundle | `@libra-tools/dsh-bundle@0.1.0` development tarball |
 | Node.js | `^22.19.0 || >=24.0.0` |
 
-The compatibility gate runs in the Libra Docker development container. It packs
+This compatibility record applies to the Memory module. The gate runs in the
+Libra Docker development container. It packs
 the nested bundle, installs it into a fresh DSH `headless` profile through real
 `dsh plugin add`, checks profile composition, loads the installed artifact through
 the pinned Loader/AgentLoop, verifies the durable Libra receipt, and optionally

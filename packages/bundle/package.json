@@ -1,7 +1,7 @@
 {
   "name": "@libra-tools/dsh-bundle",
   "version": "0.1.0",
-  "description": "Audited Libra Memory recall adapter for DeepSeek Harness",
+  "description": "DeepSeek Harness profile bundle for Libra bridge integration",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
